@@ -1,0 +1,143 @@
+{
+  "schemas": {
+    "ecommerce": {
+      "description": "E-commerce platform with customers, products, orders and reviews",
+      "tables": {
+        "customers": {
+          "columns": ["id", "first_name", "last_name", "email", "phone", "city", "country", "created_at", "is_active"],
+          "primary_key": "id",
+          "description": "Registered customers on the platform"
+        },
+        "categories": {
+          "columns": ["id", "name", "parent_id", "description"],
+          "primary_key": "id",
+          "description": "Product categories with hierarchy"
+        },
+        "products": {
+          "columns": ["id", "name", "sku", "category_id", "price", "stock_quantity", "description", "created_at"],
+          "primary_key": "id",
+          "foreign_keys": {"category_id": "categories.id"},
+          "description": "Products available for sale"
+        },
+        "orders": {
+          "columns": ["id", "customer_id", "status", "total_amount", "shipping_address", "created_at", "updated_at"],
+          "primary_key": "id",
+          "foreign_keys": {"customer_id": "customers.id"},
+          "description": "Customer orders"
+        },
+        "order_items": {
+          "columns": ["id", "order_id", "product_id", "quantity", "unit_price", "subtotal"],
+          "primary_key": "id",
+          "foreign_keys": {"order_id": "orders.id", "product_id": "products.id"},
+          "description": "Individual line items within an order"
+        },
+        "reviews": {
+          "columns": ["id", "product_id", "customer_id", "rating", "title", "body", "created_at"],
+          "primary_key": "id",
+          "foreign_keys": {"product_id": "products.id", "customer_id": "customers.id"},
+          "description": "Product reviews from customers"
+        }
+      },
+      "relationships": [
+        {"from": "products", "to": "categories", "type": "many_to_one"},
+        {"from": "orders", "to": "customers", "type": "many_to_one"},
+        {"from": "order_items", "to": "orders", "type": "many_to_one"},
+        {"from": "order_items", "to": "products", "type": "many_to_one"},
+        {"from": "reviews", "to": "products", "type": "many_to_one"},
+        {"from": "reviews", "to": "customers", "type": "many_to_one"}
+      ]
+    },
+    "finance": {
+      "description": "Banking and financial transactions system",
+      "tables": {
+        "customers": {
+          "columns": ["id", "first_name", "last_name", "email", "ssn_hash", "date_of_birth", "credit_score", "created_at"],
+          "primary_key": "id",
+          "description": "Bank customers"
+        },
+        "branches": {
+          "columns": ["id", "name", "city", "state", "address", "phone"],
+          "primary_key": "id",
+          "description": "Bank branch locations"
+        },
+        "accounts": {
+          "columns": ["id", "customer_id", "branch_id", "account_type", "balance", "currency", "status", "opened_at"],
+          "primary_key": "id",
+          "foreign_keys": {"customer_id": "customers.id", "branch_id": "branches.id"},
+          "description": "Bank accounts (checking, savings, etc.)"
+        },
+        "transactions": {
+          "columns": ["id", "account_id", "transaction_type", "amount", "description", "merchant", "category", "created_at"],
+          "primary_key": "id",
+          "foreign_keys": {"account_id": "accounts.id"},
+          "description": "All financial transactions"
+        },
+        "loans": {
+          "columns": ["id", "customer_id", "loan_type", "principal", "interest_rate", "term_months", "status", "disbursed_at"],
+          "primary_key": "id",
+          "foreign_keys": {"customer_id": "customers.id"},
+          "description": "Customer loans"
+        },
+        "payments": {
+          "columns": ["id", "loan_id", "amount", "payment_date", "is_on_time"],
+          "primary_key": "id",
+          "foreign_keys": {"loan_id": "loans.id"},
+          "description": "Loan repayment records"
+        }
+      },
+      "relationships": [
+        {"from": "accounts", "to": "customers", "type": "many_to_one"},
+        {"from": "accounts", "to": "branches", "type": "many_to_one"},
+        {"from": "transactions", "to": "accounts", "type": "many_to_one"},
+        {"from": "loans", "to": "customers", "type": "many_to_one"},
+        {"from": "payments", "to": "loans", "type": "many_to_one"}
+      ]
+    },
+    "healthcare": {
+      "description": "Hospital management and patient records system",
+      "tables": {
+        "patients": {
+          "columns": ["id", "first_name", "last_name", "date_of_birth", "gender", "blood_type", "phone", "city", "registered_at"],
+          "primary_key": "id",
+          "description": "Hospital patient records"
+        },
+        "doctors": {
+          "columns": ["id", "first_name", "last_name", "specialization", "license_number", "department", "email", "years_experience"],
+          "primary_key": "id",
+          "description": "Hospital doctors and physicians"
+        },
+        "appointments": {
+          "columns": ["id", "patient_id", "doctor_id", "appointment_date", "status", "reason", "notes", "created_at"],
+          "primary_key": "id",
+          "foreign_keys": {"patient_id": "patients.id", "doctor_id": "doctors.id"},
+          "description": "Patient appointment scheduling"
+        },
+        "diagnoses": {
+          "columns": ["id", "appointment_id", "icd_code", "diagnosis_name", "severity", "notes"],
+          "primary_key": "id",
+          "foreign_keys": {"appointment_id": "appointments.id"},
+          "description": "Medical diagnoses from appointments"
+        },
+        "prescriptions": {
+          "columns": ["id", "appointment_id", "medication_name", "dosage", "frequency", "duration_days", "notes"],
+          "primary_key": "id",
+          "foreign_keys": {"appointment_id": "appointments.id"},
+          "description": "Prescribed medications"
+        },
+        "billing": {
+          "columns": ["id", "appointment_id", "amount", "insurance_covered", "patient_paid", "status", "billed_at"],
+          "primary_key": "id",
+          "foreign_keys": {"appointment_id": "appointments.id"},
+          "description": "Patient billing records"
+        }
+      },
+      "relationships": [
+        {"from": "appointments", "to": "patients", "type": "many_to_one"},
+        {"from": "appointments", "to": "doctors", "type": "many_to_one"},
+        {"from": "diagnoses", "to": "appointments", "type": "many_to_one"},
+        {"from": "prescriptions", "to": "appointments", "type": "many_to_one"},
+        {"from": "billing", "to": "appointments", "type": "many_to_one"}
+      ]
+    }
+  }
+}
