@@ -1,0 +1,41 @@
+# --- Specific to your request ---
+# Ignore the data folder and all its contents
+data/
+
+# Ignore environment variables (CRITICAL FOR SECURITY)
+.env
+.env.local
+
+# --- Python & Frameworks ---
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+venv/
+.venv/
+env/
+
+# Ignore Reflex frontend build artifacts (if applicable)
+.web/
+
+# --- C/C++ ---
+# Ignore compiled binaries and object files
+*.o
+*.out
+*.exe
+*.dll
+*.so
+
+# --- Editor & OS Files ---
+# VS Code workspace settings (optional, but usually good to ignore)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# macOS / Windows clutter
+.DS_Store
+Thumbs.db

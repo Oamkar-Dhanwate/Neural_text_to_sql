@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neural Text-to-SQL · Analytics Engine</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <!-- Highlight.js for SQL syntax -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+
+  <style>
+    /* ─── CSS Variables ─────────────────────────────────────── */
+    :root {
+      --bg:         #080b14;
+      --surface:    #0d1120;
+      --surface2:   #121829;
+      --border:     #1e2a45;
+      --border2:    #243050;
+      --accent:     #00d4ff;
+      --accent2:    #7c3aed;
+      --accent3:    #f97316;
+      --green:      #10b981;
+      --red:        #ef4444;
+      --text:       #e2e8f0;
+      --text2:      #94a3b8;
+      --text3:      #475569;
+      --glow:       0 0 30px rgba(0,212,255,.12);
+      --glow2:      0 0 60px rgba(124,58,237,.08);
+      --radius:     12px;
+      --font-mono:  'Space Mono', monospace;
+      --font-sans:  'Syne', sans-serif;
+    }
+
+    /* ─── Reset & Base ──────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ─── Animated Grid Background ──────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,255,.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ─── Layout ─────────────────────────────────────────────── */
+    .app {
+      position: relative;
+      z-index: 1;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ─── Header ─────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 0 36px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 40px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .logo-icon {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 24px rgba(0,212,255,.3);
+      flex-shrink: 0;
+    }
+    .logo-text h1 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .logo-text p {
+      font-size: 11px;
+      color: var(--text3);
+      font-family: var(--font-mono);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 20px;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s infinite;
+    }
+    .status-dot.offline { background: var(--red); animation: none; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── Main Grid ──────────────────────────────────────────── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    /* ─── Sidebar ─────────────────────────────────────────────── */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: sticky;
+      top: 24px;
+    }
+
+    /* ─── Cards ──────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: border-color .2s;
+    }
+    .card:hover { border-color: var(--border2); }
+    .card-title {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title::before {
+      content: '';
+      display: inline-block;
+      width: 3px; height: 12px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    /* ─── Schema Selector ────────────────────────────────────── */
+    .schema-select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      outline: none;
+      cursor: pointer;
+      transition: border-color .2s;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
+    }
+    .schema-select:focus { border-color: var(--accent); }
+
+    /* ─── Schema Info ────────────────────────────────────────── */
+    .schema-tables {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .table-chip {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+
+    /* ─── Example Queries ────────────────────────────────────── */
+    .example-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all .2s;
+      margin-bottom: 6px;
+      line-height: 1.4;
+    }
+    .example-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(0,212,255,.05);
+    }
+    .example-btn:last-child { margin-bottom: 0; }
+
+    /* ─── History ────────────────────────────────────────────── */
+    .history-item {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: color .15s;
+    }
+    .history-item:last-child { border-bottom: none; }
+    .history-item:hover .history-query { color: var(--accent); }
+    .history-query {
+      font-size: 12px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color .15s;
+    }
+    .history-meta {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text3);
+      margin-top: 3px;
+      display: flex;
+      gap: 10px;
+    }
+    .history-meta .badge {
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 9px;
+    }
+    .badge-success { background: rgba(16,185,129,.15); color: var(--green); }
+    .badge-fail { background: rgba(239,68,68,.15); color: var(--red); }
+
+    /* ─── Main Content Area ──────────────────────────────────── */
+    .content { display: flex; flex-direction: column; gap: 20px; }
+
+    /* ─── Query Input ────────────────────────────────────────── */
+    .query-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color .3s, box-shadow .3s;
+    }
+    .query-card:focus-within {
+      border-color: var(--accent);
+      box-shadow: var(--glow);
+    }
+    .query-header {
+      padding: 14px 20px 0;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text3);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    .query-textarea {
+      width: 100%;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 20px;
+      resize: none;
+      min-height: 80px;
+      line-height: 1.5;
+    }
+    .query-textarea::placeholder { color: var(--text3); font-weight: 400; }
+    .query-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .query-options {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text2);
+      cursor: pointer;
+    }
+    .toggle {
+      width: 32px; height: 18px;
+      background: var(--border);
+      border-radius: 9px;
+      position: relative;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 12px; height: 12px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: transform .2s;
+    }
+    input[type=checkbox]:checked + .toggle { background: var(--accent); }
+    input[type=checkbox]:checked + .toggle::after { transform: translateX(14px); }
+    input[type=checkbox] { display: none; }
+    .run-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border: none;
+      color: #fff;
+      font-family: var(--font-sans);
+      font-weight: 700;
+      font-size: 13px;
+      padding: 10px 22px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity .2s, transform .15s;
+      letter-spacing: .3px;
+    }
+    .run-btn:hover { opacity: .9; transform: translateY(-1px); }
+    .run-btn:active { transform: translateY(0); }
+    .run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+    .run-btn .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      display: none;
+    }
+    .run-btn.loading .spinner { display: block; }
+    .run-btn.loading .btn-text { opacity: 0.7; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Pipeline Steps ─────────────────────────────────────── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 14px 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow-x: auto;
+    }
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .step-icon {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      transition: all .3s;
+      flex-shrink: 0;
+    }
+    .step-label {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .step-arrow {
+      width: 24px;
+      height: 1px;
+      background: var(--border);
+      margin: 0 4px;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .step-arrow::after {
+      content: '▶';
+      position: absolute;
+      right: -4px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 6px;
+      color: var(--border2);
+    }
+    .step.active .step-icon {
+      background: rgba(0,212,255,.1);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(0,212,255,.2);
+    }
+    .step.done .step-icon {
+      background: rgba(16,185,129,.1);
+      border-color: var(--green);
+    }
+    .step.error .step-icon {
+      background: rgba(239,68,68,.1);
+      border-color: var(--red);
+    }
+
+    /* ─── Results Section ────────────────────────────────────── */
+    .results-section { display: none; }
+    .results-section.visible { display: flex; flex-direction: column; gap: 20px; }
+
+    /* ─── Metrics Row ────────────────────────────────────────── */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 700px) { .metrics-row { grid-template-columns: repeat(2, 1fr); } }
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .metric-label {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .metric-value {
+      font-size: 24px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+    .metric-sub {
+      font-size: 10px;
+      color: var(--text3);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    /* ─── SQL Output ─────────────────────────────────────────── */
+    .sql-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: -1px;
+      padding: 0 20px;
+    }
+    .sql-tab {
+      padding: 8px 16px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      border-radius: 8px 8px 0 0;
+      border: 1px solid transparent;
+      cursor: pointer;
+      color: var(--text3);
+      background: transparent;
+      transition: all .15s;
+    }
+    .sql-tab.active {
+      background: var(--surface);
+      border-color: var(--border);
+      border-bottom-color: var(--surface);
+      color: var(--accent);
+    }
+    .sql-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0 var(--radius) var(--radius) var(--radius);
+      overflow: hidden;
+    }
+    .sql-wrap pre {
+      margin: 0;
+      padding: 0;
+      font-size: 13px;
+    }
+    .sql-wrap .hljs {
+      background: transparent;
+      padding: 18px 20px;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+    .sql-copy-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all .2s;
+      float: right;
+      margin: 10px 16px 0 0;
+    }
+    .sql-copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ─── Explanation Box ────────────────────────────────────── */
+    .explanation-box {
+      background: rgba(0,212,255,.04);
+      border: 1px solid rgba(0,212,255,.2);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text2);
+      position: relative;
+    }
+    .explanation-box::before {
+      content: '💡';
+      position: absolute;
+      top: 14px; left: 16px;
+      font-size: 16px;
+    }
+    .explanation-box p { padding-left: 28px; }
+
+    /* ─── Chart Area ─────────────────────────────────────────── */
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .chart-type-selector {
+      display: flex;
+      gap: 4px;
+    }
+    .chart-type-btn {
+      padding: 5px 12px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .chart-type-btn.active {
+      background: rgba(0,212,255,.1);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .chart-container {
+      position: relative;
+      height: 320px;
+    }
+    .no-chart-msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    /* ─── Data Table ─────────────────────────────────────────── */
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .table-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-scroll {
+      overflow-x: auto;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+      font-family: var(--font-mono);
+    }
+    thead { position: sticky; top: 0; z-index: 2; }
+    th {
+      background: var(--surface2);
+      color: var(--text3);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      font-size: 10px;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text2);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: var(--surface2); }
+    td:first-child { color: var(--text3); }
+
+    /* ─── Relevant Tables ────────────────────────────────────── */
+    .relevant-tables {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .rel-table-chip {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: rgba(124,58,237,.1);
+      border: 1px solid rgba(124,58,237,.3);
+      color: #a78bfa;
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    /* ─── Error State ────────────────────────────────────────── */
+    .error-box {
+      background: rgba(239,68,68,.06);
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #fca5a5;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    /* ─── Empty State ────────────────────────────────────────── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 20px;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+    }
+    .empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: .5; }
+    .empty-state h3 { font-size: 16px; color: var(--text2); margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; color: var(--text3); max-width: 320px; line-height: 1.6; }
+
+    /* ─── Scrollbar ──────────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+    /* ─── Fade In ────────────────────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn .35s ease forwards; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ Header ═══════════════════════════════════════════════ -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🧠</div>
+      <div class="logo-text">
+        <h1>Neural Text-to-SQL</h1>
+        <p>GNN + Groq Analytics Engine</p>
+      </div>
+    </div>
+    <div class="header-status">
+      <div class="status-badge" id="statusBadge">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusLabel">Connecting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ═══ Main Grid ═════════════════════════════════════════════ -->
+  <div class="main-grid">
+
+    <!-- ─── Sidebar ───────────────────────────────────────────── -->
+    <aside class="sidebar">
+
+      <!-- Schema Selector -->
+      <div class="card">
+        <div class="card-title">Database Schema</div>
+        <select class="schema-select" id="schemaSelect">
+          <option value="ecommerce">🛒 Ecommerce</option>
+          <option value="finance">💰 Finance</option>
+          <option value="healthcare">🏥 Healthcare</option>
+        </select>
+        <div class="schema-tables" id="schemaTables"></div>
+      </div>
+
+      <!-- Example Queries -->
+      <div class="card">
+        <div class="card-title">Example Queries</div>
+        <div id="examplesList"></div>
+      </div>
+
+      <!-- Query History -->
+      <div class="card">
+        <div class="card-title">Query History</div>
+        <div id="historyList">
+          <p style="font-size:12px; color:var(--text3); font-family:var(--font-mono);">No queries yet</p>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ─── Content ───────────────────────────────────────────── -->
+    <div class="content">
+
+      <!-- Query Input Card -->
+      <div class="query-card">
+        <div class="query-header">// natural language query</div>
+        <textarea
+          class="query-textarea"
+          id="queryInput"
+          placeholder="Ask anything about your data… e.g. 'Show me total revenue by product category last month'"
+          rows="3"
+        ></textarea>
+        <div class="query-footer">
+          <div class="query-options">
+            <label class="toggle-label">
+              <input type="checkbox" id="explainToggle" />
+              <span class="toggle"></span>
+              Explain results
+            </label>
+          </div>
+          <button class="run-btn" id="runBtn" onclick="runQuery()">
+            <div class="spinner"></div>
+            <span class="btn-text">⚡ Run Query</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Pipeline Visualizer -->
+      <div class="pipeline" id="pipeline">
+        <div class="step" id="step-input">
+          <div class="step-icon">💬</div>
+          <div class="step-label">Query</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-gnn">
+          <div class="step-icon">🕸️</div>
+          <div class="step-label">GNN</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-embed">
+          <div class="step-icon">📐</div>
+          <div class="step-label">Embed</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-llm">
+          <div class="step-icon">🤖</div>
+          <div class="step-label">Groq LLM</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-validate">
+          <div class="step-icon">🛡️</div>
+          <div class="step-label">Validate</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-db">
+          <div class="step-icon">🗄️</div>
+          <div class="step-label">Execute</div>
+        </div>
+        <div class="step-arrow"></div>
+        <div class="step" id="step-viz">
+          <div class="step-icon">📊</div>
+          <div class="step-label">Visualize</div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-state-icon">🔍</div>
+        <h3>Ready to query your data</h3>
+        <p>Type a natural language question above or pick an example query from the sidebar to get started.</p>
+      </div>
+
+      <!-- Results Section -->
+      <div class="results-section" id="resultsSection">
+
+        <!-- Error -->
+        <div class="error-box fade-in" id="errorBox" style="display:none">
+          <span>❌</span>
+          <div id="errorMsg"></div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-row fade-in" id="metricsRow" style="display:none">
+          <div class="metric-card">
+            <div class="metric-label">Rows Returned</div>
+            <div class="metric-value" id="metricRows">—</div>
+            <div class="metric-sub">result records</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Exec Time</div>
+            <div class="metric-value" id="metricTime">—</div>
+            <div class="metric-sub">milliseconds</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Columns</div>
+            <div class="metric-value" id="metricCols">—</div>
+            <div class="metric-sub">selected fields</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Tables Used</div>
+            <div class="metric-value" id="metricTables">—</div>
+            <div class="metric-sub">joined relations</div>
+          </div>
+        </div>
+
+        <!-- Relevant Tables -->
+        <div id="relevantTablesCard" style="display:none" class="card fade-in">
+          <div class="card-title">GNN · Relevant Tables</div>
+          <div class="relevant-tables" id="relevantTables"></div>
+        </div>
+
+        <!-- Explanation -->
+        <div class="explanation-box fade-in" id="explanationBox" style="display:none">
+          <p id="explanationText"></p>
+        </div>
+
+        <!-- SQL Output -->
+        <div id="sqlCard" style="display:none" class="fade-in">
+          <div class="sql-tabs">
+            <button class="sql-tab active" onclick="switchTab('generated')">Generated SQL</button>
+            <button class="sql-tab" onclick="switchTab('optimized')" id="optTab" style="display:none">Optimized SQL</button>
+          </div>
+          <div class="sql-wrap">
+            <button class="sql-copy-btn" onclick="copySQL()">📋 Copy</button>
+            <pre><code class="language-sql" id="sqlOutput"></code></pre>
+          </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-card fade-in" id="chartCard" style="display:none">
+          <div class="chart-header">
+            <div class="card-title" style="margin-bottom:0">Visualization</div>
+            <div class="chart-type-selector">
+              <button class="chart-type-btn active" onclick="setChartType('bar')">Bar</button>
+              <button class="chart-type-btn" onclick="setChartType('line')">Line</button>
+              <button class="chart-type-btn" onclick="setChartType('pie')">Pie</button>
+              <button class="chart-type-btn" onclick="setChartType('doughnut')">Donut</button>
+            </div>
+          </div>
+          <div class="chart-container">
+            <canvas id="chartCanvas"></canvas>
+          </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-card fade-in" id="tableCard" style="display:none">
+          <div class="table-card-header">
+            <div class="card-title" style="margin-bottom:0">Results</div>
+            <button class="sql-copy-btn" onclick="exportCSV()">⬇️ Export CSV</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /results-section -->
+    </div><!-- /content -->
+  </div><!-- /main-grid -->
+</div><!-- /app -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  Configuration
+// ═══════════════════════════════════════════════════════════════
+const API_BASE = 'http://localhost:8000';
+
+const EXAMPLES = {
+  ecommerce: [
+    "Show total revenue by product category",
+    "List top 10 customers by order count",
+    "Which products have the lowest stock?",
+    "Average order value per month this year",
+    "Show all reviews with rating below 3",
+  ],
+  finance: [
+    "Total transaction amount by category",
+    "Which customers have highest credit scores?",
+    "List all active loans with principal above 100000",
+    "Monthly transaction volume by account type",
+    "Show loan payment records for last 6 months",
+  ],
+  healthcare: [
+    "Top 5 doctors by number of appointments",
+    "Average billing amount by appointment status",
+    "List patients with more than 3 diagnoses",
+    "Prescriptions grouped by medication name",
+    "Show completed appointments with severity critical",
+  ],
+};
+
+const SCHEMA_TABLES = {
+  ecommerce: ['customers', 'products', 'orders', 'order_items', 'reviews', 'categories'],
+  finance: ['customers', 'accounts', 'transactions', 'loans', 'payments', 'branches'],
+  healthcare: ['patients', 'doctors', 'appointments', 'diagnoses', 'prescriptions', 'billing'],
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════
+let currentResult = null;
+let currentChart = null;
+let currentChartType = 'bar';
+let generatedSQL = '';
+let optimizedSQL = '';
+let activeTab = 'generated';
+let localHistory = [];
+
+// ═══════════════════════════════════════════════════════════════
+//  Init
+// ═══════════════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  updateSchemaUI('ecommerce');
+  document.getElementById('schemaSelect').addEventListener('change', e => {
+    updateSchemaUI(e.target.value);
+  });
+  document.getElementById('queryInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) runQuery();
+  });
+  checkHealth();
+  setInterval(checkHealth, 30000);
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Schema UI
+// ═══════════════════════════════════════════════════════════════
+function updateSchemaUI(schema) {
+  const tables = SCHEMA_TABLES[schema] || [];
+  const container = document.getElementById('schemaTables');
+  container.innerHTML = tables.map(t =>
+    `<span class="table-chip">${t}</span>`
+  ).join('');
+
+  const exList = document.getElementById('examplesList');
+  const examples = EXAMPLES[schema] || [];
+  exList.innerHTML = examples.map(ex =>
+    `<button class="example-btn" onclick="useExample(this)">${ex}</button>`
+  ).join('');
+}
+
+function useExample(btn) {
+  document.getElementById('queryInput').value = btn.textContent;
+  document.getElementById('queryInput').focus();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Health Check
+// ═══════════════════════════════════════════════════════════════
+async function checkHealth() {
+  const dot = document.getElementById('statusDot');
+  const label = document.getElementById('statusLabel');
+  try {
+    const res = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(4000) });
+    if (res.ok) {
+      const data = await res.json();
+      dot.className = 'status-dot';
+      label.textContent = data.db_connected ? 'All systems online' : 'DB offline';
+      if (!data.db_connected) dot.className = 'status-dot offline';
+    } else {
+      throw new Error();
+    }
+  } catch {
+    dot.className = 'status-dot offline';
+    label.textContent = 'Backend offline';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Pipeline Animator
+// ═══════════════════════════════════════════════════════════════
+const STEPS = ['input', 'gnn', 'embed', 'llm', 'validate', 'db', 'viz'];
+let stepTimers = [];
+
+function resetPipeline() {
+  stepTimers.forEach(clearTimeout);
+  stepTimers = [];
+  STEPS.forEach(s => {
+    const el = document.getElementById(`step-${s}`);
+    if (el) el.className = 'step';
+  });
+}
+
+function animatePipeline(success = true) {
+  resetPipeline();
+  STEPS.forEach((s, i) => {
+    stepTimers.push(setTimeout(() => {
+      const el = document.getElementById(`step-${s}`);
+      if (!el) return;
+      // Mark previous as done
+      if (i > 0) {
+        const prev = document.getElementById(`step-${STEPS[i-1]}`);
+        if (prev) prev.className = 'step done';
+      }
+      el.className = 'step active';
+      if (i === STEPS.length - 1) {
+        setTimeout(() => {
+          el.className = success ? 'step done' : 'step error';
+        }, 300);
+      }
+    }, i * 320));
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Main Query Runner
+// ═══════════════════════════════════════════════════════════════
+async function runQuery() {
+  const query = document.getElementById('queryInput').value.trim();
+  if (!query) return;
+
+  const schema = document.getElementById('schemaSelect').value;
+  const explain = document.getElementById('explainToggle').checked;
+  const btn = document.getElementById('runBtn');
+
+  // UI: loading state
+  btn.disabled = true;
+  btn.classList.add('loading');
+  document.getElementById('emptyState').style.display = 'none';
+  hideResults();
+  animatePipeline(true);
+
+  try {
+    const res = await fetch(`${API_BASE}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, schema_name: schema, explain }),
+    });
+
+    const data = await res.json();
+    currentResult = data;
+
+    if (!res.ok || !data.success) {
+      animatePipeline(false);
+      showError(data.error || data.detail || 'Unknown error from backend');
+      addToHistory(query, data.generated_sql || '—', schema, 0, false);
+    } else {
+      showResults(data);
+      addToHistory(query, data.generated_sql, schema, data.row_count, true);
+    }
+  } catch (err) {
+    animatePipeline(false);
+    showError(`Network error: ${err.message}. Is the backend running on ${API_BASE}?`);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Show / Hide Results
+// ═══════════════════════════════════════════════════════════════
+function hideResults() {
+  document.getElementById('resultsSection').className = 'results-section';
+  ['errorBox','metricsRow','relevantTablesCard','explanationBox',
+   'sqlCard','chartCard','tableCard'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+}
+
+function showError(msg) {
+  const sec = document.getElementById('resultsSection');
+  sec.className = 'results-section visible';
+  const box = document.getElementById('errorBox');
+  box.style.display = 'flex';
+  document.getElementById('errorMsg').textContent = msg;
+}
+
+function showResults(data) {
+  const sec = document.getElementById('resultsSection');
+  sec.className = 'results-section visible';
+
+  // Metrics
+  document.getElementById('metricsRow').style.display = 'grid';
+  document.getElementById('metricRows').textContent = data.row_count ?? 0;
+  document.getElementById('metricTime').textContent =
+    data.execution_time_ms ? `${data.execution_time_ms}` : '—';
+  document.getElementById('metricCols').textContent = data.columns?.length ?? 0;
+  document.getElementById('metricTables').textContent = data.relevant_tables?.length ?? 0;
+
+  // Relevant tables
+  if (data.relevant_tables?.length) {
+    document.getElementById('relevantTablesCard').style.display = 'block';
+    document.getElementById('relevantTables').innerHTML =
+      data.relevant_tables.map(t => `<span class="rel-table-chip">${t}</span>`).join('');
+  }
+
+  // Explanation
+  if (data.explanation) {
+    document.getElementById('explanationBox').style.display = 'block';
+    document.getElementById('explanationText').textContent = data.explanation;
+  }
+
+  // SQL
+  generatedSQL = data.generated_sql || '';
+  optimizedSQL = data.optimized_sql || '';
+  document.getElementById('sqlCard').style.display = 'block';
+
+  const optTab = document.getElementById('optTab');
+  if (optimizedSQL && optimizedSQL !== generatedSQL) {
+    optTab.style.display = 'inline-block';
+  } else {
+    optTab.style.display = 'none';
+  }
+  switchTab('generated');
+
+  // Table
+  if (data.columns?.length && data.rows?.length) {
+    document.getElementById('tableCard').style.display = 'block';
+    renderTable(data.columns, data.rows);
+    renderChart(data.columns, data.rows);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  SQL Tabs
+// ═══════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.sql-tab').forEach(el => el.classList.remove('active'));
+  event?.target?.classList?.add('active');
+
+  const sql = tab === 'optimized' ? (optimizedSQL || generatedSQL) : generatedSQL;
+  const codeEl = document.getElementById('sqlOutput');
+  codeEl.textContent = sql;
+  hljs.highlightElement(codeEl);
+}
+
+function copySQL() {
+  const sql = activeTab === 'optimized' ? (optimizedSQL || generatedSQL) : generatedSQL;
+  navigator.clipboard.writeText(sql).then(() => {
+    const btn = document.querySelector('.sql-copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Table Rendering
+// ═══════════════════════════════════════════════════════════════
+function renderTable(columns, rows) {
+  const head = document.getElementById('tableHead');
+  const body = document.getElementById('tableBody');
+
+  head.innerHTML = `<tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr>`;
+  body.innerHTML = rows.slice(0, 200).map(row =>
+    `<tr>${columns.map(c => {
+      let val = row[c];
+      if (val === null || val === undefined) val = '<span style="color:var(--text3)">NULL</span>';
+      return `<td title="${String(val).replace(/"/g, '&quot;')}">${val}</td>`;
+    }).join('')}</tr>`
+  ).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Chart Rendering
+// ═══════════════════════════════════════════════════════════════
+const CHART_COLORS = [
+  'rgba(0,212,255,.8)', 'rgba(124,58,237,.8)', 'rgba(249,115,22,.8)',
+  'rgba(16,185,129,.8)', 'rgba(251,191,36,.8)', 'rgba(236,72,153,.8)',
+  'rgba(99,102,241,.8)', 'rgba(20,184,166,.8)', 'rgba(239,68,68,.8)',
+];
+
+function detectChartData(columns, rows) {
+  if (!columns.length || !rows.length) return null;
+
+  // Find label col (first text-like column)
+  const numericCols = columns.filter(c => {
+    const val = rows[0][c];
+    return typeof val === 'number' || (!isNaN(parseFloat(val)) && val !== null && val !== '');
+  });
+  const textCols = columns.filter(c => !numericCols.includes(c));
+
+  if (!numericCols.length) return null;
+
+  const labelCol = textCols[0] || columns[0];
+  const valueCol = numericCols[0];
+
+  return {
+    labels: rows.slice(0, 20).map(r => String(r[labelCol] ?? '').slice(0, 30)),
+    values: rows.slice(0, 20).map(r => parseFloat(r[valueCol]) || 0),
+    valueLabel: valueCol,
+  };
+}
+
+function renderChart(columns, rows) {
+  const chartCard = document.getElementById('chartCard');
+  const detected = detectChartData(columns, rows);
+
+  if (!detected) {
+    chartCard.style.display = 'none';
+    return;
+  }
+
+  chartCard.style.display = 'block';
+
+  if (currentChart) {
+    currentChart.destroy();
+    currentChart = null;
+  }
+
+  const ctx = document.getElementById('chartCanvas').getContext('2d');
+  buildChart(ctx, detected, currentChartType);
+}
+
+function buildChart(ctx, data, type) {
+  const isPie = type === 'pie' || type === 'doughnut';
+  currentChart = new Chart(ctx, {
+    type,
+    data: {
+      labels: data.labels,
+      datasets: [{
+        label: data.valueLabel,
+        data: data.values,
+        backgroundColor: isPie
+          ? CHART_COLORS.slice(0, data.values.length)
+          : CHART_COLORS[0],
+        borderColor: isPie
+          ? CHART_COLORS.slice(0, data.values.length).map(c => c.replace('.8', '1'))
+          : CHART_COLORS[0].replace('.8', '1'),
+        borderWidth: isPie ? 2 : 1,
+        borderRadius: type === 'bar' ? 4 : 0,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: isPie,
+          labels: { color: '#94a3b8', font: { family: "'Space Mono'" } },
+        },
+        tooltip: {
+          backgroundColor: '#0d1120',
+          borderColor: '#1e2a45',
+          borderWidth: 1,
+          titleColor: '#e2e8f0',
+          bodyColor: '#94a3b8',
+          titleFont: { family: "'Syne'", weight: 'bold' },
+        },
+      },
+      scales: isPie ? {} : {
+        x: {
+          grid: { color: 'rgba(30,42,69,.6)' },
+          ticks: { color: '#475569', font: { family: "'Space Mono'", size: 10 } },
+        },
+        y: {
+          grid: { color: 'rgba(30,42,69,.6)' },
+          ticks: { color: '#475569', font: { family: "'Space Mono'", size: 10 } },
+        },
+      },
+    },
+  });
+}
+
+function setChartType(type) {
+  currentChartType = type;
+  document.querySelectorAll('.chart-type-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+
+  if (currentResult && currentResult.columns && currentResult.rows) {
+    const detected = detectChartData(currentResult.columns, currentResult.rows);
+    if (detected && currentChart) {
+      currentChart.destroy();
+      const ctx = document.getElementById('chartCanvas').getContext('2d');
+      buildChart(ctx, detected, type);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Export CSV
+// ═══════════════════════════════════════════════════════════════
+function exportCSV() {
+  if (!currentResult?.columns?.length) return;
+  const cols = currentResult.columns;
+  const rows = currentResult.rows;
+  const csv = [
+    cols.join(','),
+    ...rows.map(r => cols.map(c => {
+      const v = r[c] ?? '';
+      return typeof v === 'string' && v.includes(',') ? `"${v}"` : v;
+    }).join(',')),
+  ].join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `query_results_${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  History
+// ═══════════════════════════════════════════════════════════════
+function addToHistory(query, sql, schema, rowCount, success) {
+  localHistory.unshift({ query, sql, schema, rowCount, success, time: new Date() });
+  if (localHistory.length > 15) localHistory.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const container = document.getElementById('historyList');
+  if (!localHistory.length) {
+    container.innerHTML = '<p style="font-size:12px;color:var(--text3);font-family:var(--font-mono);">No queries yet</p>';
+    return;
+  }
+  container.innerHTML = localHistory.map((item, i) => `
+    <div class="history-item" onclick="loadHistory(${i})">
+      <div class="history-query">${item.query}</div>
+      <div class="history-meta">
+        <span class="badge ${item.success ? 'badge-success' : 'badge-fail'}">${item.success ? 'OK' : 'FAIL'}</span>
+        <span>${item.schema}</span>
+        <span>${item.rowCount} rows</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function loadHistory(idx) {
+  const item = localHistory[idx];
+  if (!item) return;
+  document.getElementById('queryInput').value = item.query;
+  document.getElementById('schemaSelect').value = item.schema;
+  updateSchemaUI(item.schema);
+}
+</script>
+</body>
+</html>
